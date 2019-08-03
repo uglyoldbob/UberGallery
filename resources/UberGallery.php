@@ -70,6 +70,7 @@ class UberGallery {
             $this->setSortMethod($config['advanced_settings']['images_sort_by'], $config['advanced_settings']['reverse_sort']);
             $this->setDebugging($config['advanced_settings']['enable_debugging']);
             $this->setCacheDirectory($this->_appDir . '/cache');
+			$this->setMaxMediumPixels($config['advanced_settings']['max_view_pixels']);
 
             if ($config['basic_settings']['enable_pagination']) {
                 $this->setImagesPerPage($config['advanced_settings']['images_per_page']);
@@ -198,7 +199,8 @@ class UberGallery {
                 $galleryArray['images'][htmlentities(pathinfo($image['real_path'], PATHINFO_BASENAME))] = array(
                     'file_title'   => str_replace('_', ' ', pathinfo($image['real_path'], PATHINFO_FILENAME)),
                     'file_path'    => htmlentities($relativePath),
-                    'thumb_path'   => $this->_createThumbnail($image['real_path'])
+                    'thumb_path'   => $this->_createThumbnail($image['real_path']),
+					'medium_path'  => $this->_createMedium($image['real_path'])
                 );
 
             }
@@ -372,6 +374,12 @@ class UberGallery {
 
         return $this;
     }
+	
+	public function setMaxMediumPixels($maxPixels = 2222222) {
+		$this->_config['max_medium_pixels'] = $maxPixels;
+		
+		return $this;
+	}
 
 
     /**
@@ -611,6 +619,84 @@ class UberGallery {
         return $dirArray;
     }
 
+	/**
+     * Creates a smaller version of given dimensions from a source image
+     *
+     * @param string $source Path to source image
+     * @param int $maxP is the maximum number of pixels to create (default = null)
+     * @param int $thumbHeight Desired thumbnail height size in pixels (default = null)
+     * @param int $quality Thumbnail quality, from 1 to 100, applies to JPG and JPEGs only (default = null)
+     * @return string Relative path to thumbnail
+     * @access private
+     */
+	private function _createMedium($source, $maxP = NULL, $quality = NULL) {
+		//set maximum number of pixels if not specified
+		if ($maxP === NULL) {
+			$maxP = $this->_config['max_medium_pixels'];
+		}
+		
+		// Set defaults thumbnail height if not specified
+        if ($quality === NULL) {
+            $quality = $this->_config['thumbnail']['quality'];
+        }
+		
+		// MD5 hash of source image path
+        $fileHash = $this->_hash($source);
+		
+		// Get file extension from source image
+        $fileExtension = pathinfo($source, PATHINFO_EXTENSION);
+
+        // Build file name
+        $fileName = "medium-" . $fileHash . '.' . $fileExtension;
+
+        // Build thumbnail destination path
+        $destination = $this->_config['cache_dir'] . '/' . $fileName;
+
+        // If file is cached return relative path to thumbnail
+        if ($this->_isFileCached($destination)) {
+            $relativePath = $this->_rThumbsDir . '/' . $fileName;
+            return $relativePath;
+        }
+
+        // Get needed image information
+        $imgInfo = getimagesize($source);
+        $width   = $imgInfo[0];
+        $height  = $imgInfo[1];
+        $x       = 0;
+        $y       = 0;
+
+        // Calculate ratios
+		$srcPixels = $width * $height;
+		
+		$factor = sqrt($maxP / $srcPixels);
+        
+		$thumbWidth = $width * $factor;
+		$thumbHeight = $height * $factor;
+		$x = 0;
+		$y = 0;
+
+        // Create new empty image of proper dimensions
+        $newImage = imagecreatetruecolor($thumbWidth, $thumbHeight);
+
+        // Create new thumbnail
+        if ($imgInfo[2] == IMAGETYPE_JPEG) {
+            $image = imagecreatefromjpeg($source);
+            imagecopyresampled($newImage, $image, 0, 0, $x, $y, $thumbWidth, $thumbHeight, $width, $height);
+            imagejpeg($newImage, $destination, $quality);
+        } elseif ($imgInfo[2] == IMAGETYPE_GIF) {
+            $image = imagecreatefromgif($source);
+            imagecopyresampled($newImage, $image, 0, 0, $x, $y, $thumbWidth, $thumbHeight, $width, $height);
+            imagegif($newImage, $destination);
+        } elseif ($imgInfo[2] == IMAGETYPE_PNG) {
+            $image = imagecreatefrompng($source);
+            imagecopyresampled($newImage, $image, 0, 0, $x, $y, $thumbWidth, $thumbHeight, $width, $height);
+            imagepng($newImage, $destination);
+        }
+
+        // Return relative path to thumbnail
+        $relativePath = $this->_rThumbsDir . '/' . $fileName;
+        return $relativePath;
+	}
 
     /**
      * Creates a cropped, square thumbnail of given dimensions from a source image
@@ -737,7 +823,7 @@ class UberGallery {
 
         // Decode the array
         $decodedArray = $this->_arrayDecode($indexArray);
-
+		
         // Return the array
         return $decodedArray;
     }
